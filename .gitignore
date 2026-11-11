@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# 运行生成的图片（需要上传的图可以用 git add -f 强制添加）
+*.png
+*.jpg
+*.gif
+
+# 数据集与模型权重（体积大，不上传）
+data/
+datasets/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.hdf5
+*.h5
+*.npz
+
+# 训练日志
+runs/
+wandb/
+logs/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
