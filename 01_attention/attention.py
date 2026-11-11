@@ -45,18 +45,21 @@ def scaled_dot_product_attention(q, k, v, mask=None):
         out:     (..., L, d_v)
         weights: (..., L, S)   注意力权重，每一行之和为 1
     """
-    # TODO(1a): 计算注意力分数 scores = Q @ K^T / sqrt(d_k)，形状 (..., L, S)
-    #   提示: k.transpose(-2, -1) 交换最后两维；d_k = q.size(-1)
+    # (1a) 相似度分数: (..., L, d_k) @ (..., d_k, S) -> (..., L, S)
+    d_k = q.size(-1)
+    scores = q @ k.transpose(-2, -1) / math.sqrt(d_k)
 
-    # TODO(1b): 如果 mask 不是 None，把 mask 为 False 的位置填成 -inf
-    #   提示: scores.masked_fill(条件, 值) —— 条件为 True 的位置会被填
-    #   想一想: 为什么填 -inf 而不是 0？
+    # (1b) 屏蔽: mask 为 False 的位置填 -inf，softmax 后权重恰好为 0
+    #      填 0 不行: e^0 = 1，被屏蔽的位置仍会分到权重
+    if mask is not None:
+        scores = scores.masked_fill(~mask, float("-inf"))
 
-    # TODO(1c): 在最后一维 (dim=-1) 上做 softmax，得到 weights
+    # (1c) 对每个 query（每一行），在所有 key 上归一化成概率
+    weights = torch.softmax(scores, dim=-1)
 
-    # TODO(1d): out = weights @ v
-
-    raise NotImplementedError("Step 1 还没实现")
+    # (1d) 加权求和: (..., L, S) @ (..., S, d_v) -> (..., L, d_v)
+    out = weights @ v
+    return out, weights
 
 
 # =============================================================================
@@ -71,9 +74,8 @@ def make_causal_mask(L, device=None):
          [T, T, T, T]]
     第 i 行表示：第 i 个位置只能看到第 0..i 个位置，看不到"未来"。
     """
-    # TODO(2): 一行就够了。提示: torch.ones(..., dtype=torch.bool) 和 torch.tril
-
-    raise NotImplementedError("Step 2 还没实现")
+    # 全 True 的 (L, L) 矩阵 -> tril 只保留下三角（含对角线），其余置为 False
+    return torch.tril(torch.ones(L, L, dtype=torch.bool, device=device))
 
 
 # =============================================================================
@@ -98,25 +100,26 @@ class MultiHeadAttention(nn.Module):
         self.n_heads = n_heads
         self.d_head = d_model // n_heads
 
-        # TODO(3a): 定义 4 个线性层，都是 nn.Linear(d_model, d_model, bias=bias)
-        #   名字必须是 self.W_q, self.W_k, self.W_v, self.W_o（测试要用这些名字拷贝权重）
-
-        raise NotImplementedError("Step 3a 还没实现（__init__）")
+        # (3a) 四个线性层，可学习参数全在这里: 4 * (D*D + D)
+        self.W_q = nn.Linear(d_model, d_model, bias=bias)  # 把输入变成"提问"
+        self.W_k = nn.Linear(d_model, d_model, bias=bias)  # 把输入变成"索引标签"
+        self.W_v = nn.Linear(d_model, d_model, bias=bias)  # 把输入变成"要传递的内容"
+        self.W_o = nn.Linear(d_model, d_model, bias=bias)  # 把各个头的结果混合起来
 
     def split_heads(self, x):
         """(B, T, D) -> (B, H, T, Dh)"""
-        # TODO(3b): 先 view 成 (B, T, H, Dh)，再 transpose 成 (B, H, T, Dh)
-        #   提示: B, T, _ = x.shape
-
-        raise NotImplementedError("Step 3b 还没实现（split_heads）")
+        B, T, _ = x.shape
+        # (B, T, D) -> (B, T, H, Dh): 把最后一维 D 切成 H 段，每段 Dh 维（只改形状，不动数据）
+        x = x.view(B, T, self.n_heads, self.d_head)
+        # (B, T, H, Dh) -> (B, H, T, Dh): 把 H 挪到前面，当作类似 batch 的维度
+        return x.transpose(1, 2)
 
     def merge_heads(self, x):
         """(B, H, T, Dh) -> (B, T, D)，split_heads 的逆操作"""
-        # TODO(3c): 先 transpose 回 (B, T, H, Dh)，再变成 (B, T, D)
-        #   注意: transpose 之后内存不连续，直接 .view 会报错。用 .reshape，或者 .contiguous().view
-        #   想一想: 为什么不能直接 x.view(B, T, D)，跳过 transpose？
-
-        raise NotImplementedError("Step 3c 还没实现（merge_heads）")
+        B, H, T, Dh = x.shape
+        # (B, H, T, Dh) -> (B, T, H, Dh) -> (B, T, D)
+        # transpose 后内存不连续，view 会报错，所以用 reshape（必要时会自动复制数据）
+        return x.transpose(1, 2).reshape(B, T, H * Dh)
 
     def forward(self, query, key, value, mask=None):
         """
@@ -132,11 +135,20 @@ class MultiHeadAttention(nn.Module):
             out:     (B, L, D)
             weights: (B, H, L, S)   每个头各自的注意力权重
         """
-        # TODO(3d): 五步走
-        #   1. 线性投影:  q = self.W_q(query)，k、v 同理
-        #   2. 拆成多头:  split_heads
-        #   3. 做 attention: 直接调用你在 Step 1 写的函数（它支持 "..." 维度，多头不用写循环）
-        #   4. 合并多头:  merge_heads
-        #   5. 输出投影:  self.W_o
+        # 1. 线性投影                       (B, L, D)  (B, S, D)  (B, S, D)
+        q = self.W_q(query)
+        k = self.W_k(key)
+        v = self.W_v(value)
 
-        raise NotImplementedError("Step 3d 还没实现（forward）")
+        # 2. 拆成多头                       (B, H, L, Dh)  (B, H, S, Dh)  (B, H, S, Dh)
+        q, k, v = self.split_heads(q), self.split_heads(k), self.split_heads(v)
+
+        # 3. 所有头并行做 attention         out (B, H, L, Dh), weights (B, H, L, S)
+        #    mask (L, S) 会自动广播到 (B, H, L, S)
+        out, weights = scaled_dot_product_attention(q, k, v, mask)
+
+        # 4. 合并多头                       (B, L, D)
+        out = self.merge_heads(out)
+
+        # 5. 输出投影                       (B, L, D)
+        return self.W_o(out), weights
