@@ -12,8 +12,8 @@ conda activate transformer     # Python 3.11, torch 2.15 + CUDA 13.2, RTX 3060
 
 | # | 项目 | 学到什么 | 状态 |
 |---|------|---------|------|
-| 1 | [手写 Attention](01_attention/) | QKV、缩放、mask、多头、self / cross attention | 🔨 进行中 |
-| 2 | 字符级 mini-GPT | Decoder-only 结构、位置编码、LayerNorm、残差、训练循环 | ⬜ |
+| 1 | [手写 Attention](01_attention/) | QKV、缩放、mask、多头、self / cross attention | ✅ 完成 |
+| 2 | [字符级 mini-GPT](02_mini_gpt/) | Decoder-only 结构、位置编码、LayerNorm、残差、训练循环 | ✅ 完成 |
 | 3 | Seq2Seq 小任务 | 完整的 Encoder-Decoder、cross-attention 的实际作用 | ⬜ |
 | 4 | 从零写 ViT（CIFAR-10） | 把图像切成 patch 变成 token | ⬜ |
 | 5 | Mini-ACT | CVAE、action chunking、temporal ensembling | ⬜ |

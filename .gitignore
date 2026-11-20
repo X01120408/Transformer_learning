@@ -29,3 +29,6 @@ logs/
 .vscode/
 .idea/
 .DS_Store
+
+# 训练输出
+*.log
